@@ -81,13 +81,15 @@ WHERE EXISTS (
 )
 ORDER BY t.id;
 
--- 10. Как выглядит новая заявка до и после добавления?
+-- 10. Сколько тестовых заявок до и после добавления?
 -- expect: rows
 BEGIN;
-SELECT COUNT(*) AS before FROM tickets WHERE title = 'Проверка вставки ЛР2';
+SELECT COUNT(*) AS before
+FROM tickets
+WHERE title = 'Проверка вставки ЛР2';
 INSERT INTO tickets (client_id, category_id, title, description)
 VALUES (1, 1, 'Проверка вставки ЛР2', 'Тестовая заявка для второй лабораторной');
-SELECT id, title, status, priority
+SELECT COUNT(*) AS after
 FROM tickets
 WHERE title = 'Проверка вставки ЛР2';
 ROLLBACK;
@@ -125,7 +127,7 @@ FROM numbered
 WHERE num <= 3
 ORDER BY category, num;
 
--- 14. ★ Как накапливается сумма приоритетов первых десяти заявок?
+-- 14. Как накапливается сумма приоритетов первых десяти заявок?
 -- expect: rows
 SELECT id, priority,
        SUM(priority) OVER (ORDER BY id) AS total_priority
@@ -133,7 +135,7 @@ FROM tickets
 ORDER BY id
 LIMIT 10;
 
--- 15. ★★ Сколько заявок каждого статуса в категории и какова доля закрытых?
+-- 15. Сколько заявок каждого статуса в категории и какова доля закрытых?
 -- expect: rows
 SELECT c.name AS category,
        COUNT(*) AS total,
@@ -146,3 +148,48 @@ FROM tickets t
 JOIN categories c ON c.id = t.category_id
 GROUP BY c.id, c.name
 ORDER BY c.id;
+
+-- 16. Как менялось количество заявок по месяцам?
+-- expect: rows
+BEGIN;
+SELECT COUNT(*) AS before
+FROM tickets
+WHERE description = 'Проверка динамики';
+INSERT INTO tickets (client_id, category_id, title, description, created_at)
+VALUES
+(1, 1, 'Тест за август', 'Проверка динамики', '2026-08-15'),
+(1, 1, 'Тест за сентябрь', 'Проверка динамики', '2026-09-15');
+SELECT COUNT(*) AS after
+FROM tickets
+WHERE description = 'Проверка динамики';
+WITH months AS (
+    SELECT date_trunc('month', created_at) AS month,
+           COUNT(*) AS total
+    FROM tickets
+    GROUP BY date_trunc('month', created_at)
+),
+changes AS (
+    SELECT month, total,
+           LAG(total) OVER (ORDER BY month) AS previous
+    FROM months
+)
+SELECT month::date, total, previous,
+       ROUND(100.0 * (total - previous) / NULLIF(previous, 0), 1) AS change_percent
+FROM changes
+ORDER BY month;
+ROLLBACK;
+
+-- 17. Как получить список последних шести месяцев?
+-- expect: rows
+WITH RECURSIVE months AS (
+    SELECT date_trunc('month', CURRENT_DATE) AS month
+
+    UNION ALL
+
+    SELECT month - INTERVAL '1 month'
+    FROM months
+    WHERE month > date_trunc('month', CURRENT_DATE) - INTERVAL '5 months'
+)
+SELECT month::date
+FROM months
+ORDER BY month;
