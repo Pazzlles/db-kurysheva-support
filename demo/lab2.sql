@@ -127,29 +127,7 @@ FROM numbered
 WHERE num <= 3
 ORDER BY category, num;
 
--- 14. Как накапливается сумма приоритетов первых десяти заявок?
--- expect: rows
-SELECT id, priority,
-       SUM(priority) OVER (ORDER BY id) AS total_priority
-FROM tickets
-ORDER BY id
-LIMIT 10;
-
--- 15. Сколько заявок каждого статуса в категории и какова доля закрытых?
--- expect: rows
-SELECT c.name AS category,
-       COUNT(*) AS total,
-       COUNT(*) FILTER (WHERE t.status = 'new') AS new_count,
-       COUNT(*) FILTER (WHERE t.status = 'in_progress') AS work_count,
-       COUNT(*) FILTER (WHERE t.status = 'closed') AS closed_count,
-       ROUND(100.0 * COUNT(*) FILTER (WHERE t.status = 'closed')
-             / COUNT(*), 1) AS closed_percent
-FROM tickets t
-JOIN categories c ON c.id = t.category_id
-GROUP BY c.id, c.name
-ORDER BY c.id;
-
--- 16. Как менялось количество заявок по месяцам?
+-- 14. Как менялось количество заявок по месяцам?
 -- expect: rows
 BEGIN;
 SELECT COUNT(*) AS before
@@ -179,17 +157,26 @@ FROM changes
 ORDER BY month;
 ROLLBACK;
 
--- 17. Как получить список последних шести месяцев?
+-- 15. Сколько заявок каждого статуса было за последние шесть месяцев?
 -- expect: rows
 WITH RECURSIVE months AS (
     SELECT date_trunc('month', CURRENT_DATE) AS month
 
     UNION ALL
-
     SELECT month - INTERVAL '1 month'
     FROM months
     WHERE month > date_trunc('month', CURRENT_DATE) - INTERVAL '5 months'
 )
-SELECT month::date
-FROM months
-ORDER BY month;
+SELECT m.month::date AS month,
+       COUNT(t.id) AS total,
+       COUNT(*) FILTER (WHERE t.status = 'new') AS new_count,
+       COUNT(*) FILTER (WHERE t.status = 'in_progress') AS work_count,
+       COUNT(*) FILTER (WHERE t.status = 'closed') AS closed_count,
+       ROUND(
+           100.0 * COUNT(*) FILTER (WHERE t.status = 'closed')
+           / NULLIF(COUNT(t.id), 0), 1
+       ) AS closed_percent
+FROM months m
+LEFT JOIN tickets t ON date_trunc('month', t.created_at) = m.month
+GROUP BY m.month
+ORDER BY m.month;
